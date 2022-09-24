@@ -1,0 +1,350 @@
+# Librerias ---------------------------------------------------------------
+
+library(readxl)
+library(tidyverse)
+library(ggpubr)
+library(InformationValue)
+library(ROCit)
+library(DescTools)
+library(MLmetrics)
+library(broom)
+library(rsample)
+library(janitor)
+library(ggfortify)
+
+# Ejercicio 1 : Regresion Lineal ------------------------------------------
+
+## Pregunta 1 ----
+
+### Cargando bd
+data_p1 <- read_csv("Evaluacion 2/bikes.csv")
+
+### clean_names
+data_p1 <- janitor::clean_names(data_p1)
+
+### Transformacion variables categoricas a factor
+
+glimpse(data_p1)
+
+data_p1$season <- as.factor(data_p1$season)
+data_p1$holiday <- as.factor(data_p1$holiday)
+data_p1$weekday <- as.factor(data_p1$weekday)
+data_p1$workingday <- as.factor(data_p1$workingday)
+data_p1$weather <- as.factor(data_p1$weather)
+
+glimpse(data_p1)
+summary(data_p1)
+
+### Transformacion temperaturas
+
+data_p1 <- data_p1 %>% 
+  mutate(temp= 44 * temp - 8,
+         atemp = 66 * atemp - 16)
+
+### Transformacion humedad a porcentaje
+
+data_p1 <- data_p1 %>% 
+  mutate(humidity = humidity * 100)
+
+### Transformacion velocidad del viento a millas por hora
+
+data_p1 <- data_p1 %>% 
+  mutate(windspeed = windspeed*67)
+
+## Pregunta 2 ----
+
+ggplot(data = data_p1, aes(x = temp,
+                           y = target))+
+  geom_point()+
+  geom_smooth(method = 'loess')+
+  ggtitle("Temperatura vs Demanda de bicicletas")+
+  labs(x = "Temperatura",
+       y = "Demanda")
+
+### Observación : Podemos ver que mientras aumenta la temperatura mas
+### salidas en bici habrn, y una vez que se llegan a los 25°c esta comienza a
+### disminuir.
+
+## Pregunta 3 ----
+
+ggplot(data = data_p1, aes(x = temp,
+                           y = target))+
+  geom_point()+
+  geom_smooth()+
+  facet_wrap(~ year)+
+  ggtitle("Comparación año 2020 vs 2021 relación temperatura vs demanda")+
+  labs(x = "Temperatura",
+       y = "Demanda")
+
+### Observación : Se aprecia que en el año 2020 es menor al año 2021, pero 
+### la relación entre temperatura y demanda se mantiene.
+### ¿Podría deberse que en el año 2020 las restricciones por COVID-19 eran mayores?
+
+## Pregunta 4 ----
+
+### Creamos el modelo sin las variables date, month y registered
+
+data_p1_2 <- data_p1 %>% 
+  select(-date, -month, -registered)
+
+## Obtenemos un modelo nulo con solo el intercepto
+
+modelo_nulo <- lm(target ~ 1 , data = data_p1_2)
+
+## Creamos un modelo completo
+modelo_completo <- lm(target ~ ., data = data_p1_2)
+## Obtenemos la formula del modelo completo
+formula_forward <- formula(modelo_completo)
+
+modelo_p4 <- step(modelo_nulo,
+                       direction="forward",
+                       scope = formula_forward)
+
+summary(modelo_forward)
+
+### Respuesta : Al agregar temperatura y dias feriados al modelo el valor AIC
+### disminuye lo que nos indica que son variables que "sirven" para el modelo.
+### Se puede observar que el step los selecciona casi al final, esto quiere decir
+### que estas variables cobraban sentido una vez que todas las demas varabiales
+### estuviesen seleccionadas.
+### En cuanto a sus estimativos, a medida que aumenta un punto de temperatura, 
+### la demanda aumenta en 90 bicicletas, 
+### en cuanto a los días feriados se interpreta que cuando estos
+### son días feriados la demanda disminuye en 656 bicicletas. ¿La gente usa mas
+### sus bicicletas para viajar al trabajo en esta muestra?.
+
+## Pregunta 5 ----
+
+### Test de normalidad de residuos Kolmogorov Smirnov----
+
+nortest::lillie.test(modelo_p4$residuals)
+
+### Respuesta : El valor p es casi 0, por lo que con el test de normalidad
+### de Kolmogorov podemos rechazar la hipotesis nula con un nivel de confianza 
+### del 0.05, y por lo tanto hay evidencia para decir que los residuos 
+### no se distribuyen normalmente.
+
+### Supuesto de homocedasticidad ----
+
+plot(modelo_p4, 3)
+
+### Obs : Se evidencia que la línea no es constante en los ultimos tramos,
+### y, a vista "rapida" se observa que no hay homocedasticidad.
+
+### Test Breusch-Pagan
+lmtest::bptest(modelo_p4)
+
+### Respuesta : Con un valor p cercano a 0, existe evidencia para rechazar la 
+### hipotesis nula,por lo tanto los residuos no son homocedasticos.
+### 
+
+### Independencia de residuos ----
+
+plot(modelo_p4, 1)
+
+### Obs: Se evidencia un "patron", en donde los residuos forman grupos.
+### Test Durbin Watson
+
+lmtest::dwtest(modelo_p4)
+
+
+### Hay evidencia suficiente con un valor p cercano a 0
+### para rechazar la hipotesis nula de que los residuos no estan correlacionados.
+
+
+## Pregunta 6 ----
+
+prediccion_ejercicio1 <-tibble(season = 2,
+                               year = 1,
+                               holiday = 1,
+                               weekday = 5, # 5
+                               workingday = 0,
+                               weather = 2,
+                               temp = 12,
+                               atemp = 11,
+                               humidity = 66.3,
+                               windspeed = 12.5)
+
+prediccion_ejercicio1$season <- as.factor(prediccion_ejercicio1$season)
+prediccion_ejercicio1$holiday <- as.factor(prediccion_ejercicio1$holiday)
+prediccion_ejercicio1$weekday <- as.factor(prediccion_ejercicio1$weekday)
+prediccion_ejercicio1$workingday <- as.factor(prediccion_ejercicio1$workingday)
+prediccion_ejercicio1$weather <- as.factor(prediccion_ejercicio1$weather)
+
+predict(modelo_p4, newdata = prediccion_ejercicio1)
+
+### Respuesta : Para un día con esas caracteristicas, la predicción de arriendos
+###  de bicicletas es de 4743.
+
+
+
+# Ejercicio 2 -------------------------------------------------------------
+
+
+## Pregunta 7 ----
+
+data_lluvia <- read_csv("Evaluacion 2/Lluvia_full.csv")
+data_lluvia <- janitor::clean_names(data_lluvia)
+
+data_lluvia <- data_lluvia %>% 
+  mutate(lluvia_man = case_when(lluvia_man == "No" ~ 0,
+                                lluvia_man == "Yes" ~ 1))
+glimpse(data_lluvia)
+
+## dejo lluvia_man como factor
+
+data_lluvia$lluvia_man <- as.factor(data_lluvia$lluvia_man)
+
+### Creamos set de entrenamiento y de validación
+set.seed(2022)
+split_lluvia <- initial_split(
+  data = data_lluvia,
+  prop = 0.8
+)
+
+### Asignamos a un objeto los sets de entrenamiento y testeo
+lluvia_training <- training(split_lluvia)
+lluvia_test <- testing(split_lluvia)
+
+
+## Pregunta 8 ----
+
+modelo_lluvia_univariable <- glm(lluvia_man ~ evaporacion, data = lluvia_training,
+                                 family = "binomial")
+summary(modelo_lluvia_univariable)
+
+### Calculo OR evaporacion
+
+exp(-0.103035) # 0.9020954. Factor protector, ya que es < 1
+
+(exp(-0.103035)- 1) * 100 # "Por cada mm de evaporacion en 24 horas, la probabilidad 
+# de que llueva disminuye en -9.79%
+# 
+
+
+## Pregunta 9 -------------------------------------------------------------
+
+## Primero creamos un modelo con todas las variables
+
+modelo_lluvia_full <- glm(lluvia_man ~ ., data = lluvia_training,
+                          family = "binomial")
+
+## Creamos modelo step con dirección both
+
+modelo_lluvia_both <- step(modelo_lluvia_full, direction = "both")
+
+summary(modelo_lluvia_both)
+## Obs: Tomó como intercepto : estacion=Invierno, lluvia_hoy=No,koppen = "Desert"
+
+## Pregunta 10 -------------------------------------------------------------
+
+## Creamos un dataset en donde podemos ver las probabilidades junto a otros 
+## estadisticos.
+
+predicciones_lluvia <- broom::augment(modelo_lluvia_both) %>% 
+  mutate(prob = exp(.fitted) / (1 + exp(.fitted)))
+## Se aplica sigmoide a la columna  ".fitted" para obtener probabilidades
+
+## Comparamos los valores observados en el dataset de entrenamiento contra las 
+## probabilidades obtenidas con las líneas de arriba.
+InformationValue::plotROC(
+  actuals = lluvia_training$lluvia_man,
+  predictedScores = predicciones_lluvia$prob,
+  returnSensitivityMat = TRUE
+)
+
+## Observacion : AUROC nos da 88.61%, lo que significa que el modelo logra 
+## discriminar de buena forma los datos.
+## ReturnSensitivityMat nos devuelve cada combinación en la gráfica
+## Con el requerimiento de la pregunta 10, debiesemos elegir la línea
+## 50 que nos otorga una sensibilidad de 81.37% y especificidad de 80% app
+## lo que lleva a un punto de corte de 0.2
+
+
+## KS
+
+ks <- ROCit::ksplot(ROCit::rocit(score = predicciones_lluvia$prob, class = predicciones_lluvia$lluvia_man))
+
+ks$`KS stat`
+
+### El indicador KS lo clasifica como un modelo "Bueno"
+
+## Pregunta 11 ------------------------------------------------------------
+
+predicciones_lluvia_test <- broom::augment(modelo_lluvia_both, newdata=lluvia_test) %>% 
+  mutate(prob = exp(.fitted) / (1 + exp(.fitted))) 
+
+## Curva ROC para el test
+
+InformationValue::plotROC(
+  actuals = lluvia_test$lluvia_man,
+  predictedScores = predicciones_lluvia_test$prob,
+  returnSensitivityMat = TRUE
+)
+
+## Observación : AUROC nosda 88.7% lo que significa que el modelo logra 
+## discriminar de buena forma los datos y la variación es muy pequeña
+## frente al dataset de entrenamiento.
+
+InformationValue::confusionMatrix(
+  actuals         = predicciones_lluvia_test$lluvia_man,
+  predictedScores = predicciones_lluvia_test$prob,
+  threshold       = 0.2
+)
+
+## KS
+
+ks_test <- ROCit::ksplot(ROCit::rocit(score = predicciones_lluvia_test$prob, 
+                                 class = predicciones_lluvia_test$lluvia_man))
+
+ks$`KS stat`
+
+### El indicador KS lo clasifica como un modelo "Bueno".
+
+## Calculo precisión
+
+6916/(6916+1869) # 78,73%
+
+
+## Creamos un dataset con la clasificacion de si llueve o no
+predicciones_lluvia_class <- predicciones_lluvia_test %>% 
+  mutate(clasificacion = factor(ifelse(prob >= 0.2, 1,0)))
+
+
+
+## Pregunta 12 -------------------------------------------------------------
+
+## Creamos un dataset con las variables a predecir
+prediceme <- tibble(MinTemp = 7,
+       MaxTemp = 18,
+       Lluvia  = 0,
+       Evaporacion = 7,
+       Sol = 12,
+       VelRafaga = 72,
+       Vel9am = 10,
+       Vel3pm = 54,
+       Hum9am = 65,
+       Hum3pm = 77,
+       Pres9am = 1001,
+       Pre3pm = 1025,
+       Nub9am = 3,
+       Nub3pm = 2,
+       Temp9am = 11.4,
+       Temp3pm = 16.2,
+       LluviaHoy = 'No',
+       Koppen = 'Subtropical',
+       Estacion = 'Primavera')
+
+## Ajustamos al formato del dataset usado
+prediceme <- janitor::clean_names(prediceme)
+
+## Predecimos
+predict(modelo_lluvia_both,
+        newdata = prediceme,
+        type = "response")
+
+
+
+## RESPUESTA : 
+## La probabilidad que llueva mañana es de 1.64%, y con el punto de corte definido
+## se predice qué NO lloverá.
